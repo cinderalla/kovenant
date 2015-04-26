@@ -26,9 +26,14 @@ import java.util.concurrent.atomic.AtomicReference
 public class LinkedRingBuffer<E : Any>() {
     private volatile var enqueue: MutableNode<E?>
     private volatile var dequeue: MutableNode<E?>
-    private val size = AtomicInteger(0)
 
-    private val intermediate = Any()
+    private val size = AtomicInteger(0)
+    private val capacity = AtomicInteger(1)
+
+    private object Marker {
+        val popping = Any()
+        val deleted = Any()
+    }
 
     init {
         val node = MutableNode<E?>()
@@ -36,22 +41,25 @@ public class LinkedRingBuffer<E : Any>() {
         dequeue = node
     }
 
-    public fun offer(value: E) : Boolean {
+    public fun offer(value: E): Boolean {
         while (true) {
-            val head = enqueue
-            if (head.value.compareAndSet(null, value)) {
-                val next = head.next
-                if (next == dequeue) {
-                    val nextEnqueue = MutableNode<E?>()
-                    nextEnqueue.next = next
-                    head.next = nextEnqueue
-                    enqueue = nextEnqueue
-                } else {
-                    enqueue = next
-                }
-                size.incrementAndGet()
-                return true
+            val node = enqueue
+
+            //Retry if the current node is not empty or we fail to set a new value
+            if (node.value.get() != null || !node.value.compareAndSet(null, value)) continue
+
+
+            if (node.identityEquals(dequeue) || node.next.identityEquals(dequeue)) {
+                val newNode = MutableNode<E?>()
+                newNode.next = node.next
+                node.next = newNode
+                enqueue = newNode
+                capacity.incrementAndGet()
+            } else {
+                enqueue = node
             }
+            size.incrementAndGet()
+            return true
         }
     }
 
@@ -60,24 +68,62 @@ public class LinkedRingBuffer<E : Any>() {
         while (true) {
             val tail = dequeue
             val tailVal = tail.value.get()
-            if (tailVal == null && tail == enqueue) {
+
+            if (tailVal == null) {
+                //can only happen when empty
                 return null
-            } else {
-                if (tailVal != intermediate && tail.value.compareAndSet(tailVal, intermediate as E)) {
-                    dequeue = tail.next
+            }
+
+            if (tailVal == Marker.popping) {
+                //value being popped by another thread, restart
+                continue
+            }
+
+            if (tailVal == Marker.deleted) {
+                //we came across a deleted marker. Let's clear it if we can.
+                if (tail.value.compareAndSet(tailVal, Marker.popping as E)) {
+                    //don't go pass the enqueue
+                    if (tail != enqueue) {
+                        dequeue = tail.next
+                    }
                     tail.value.set(null)
-                    size.decrementAndGet()
-                    return tailVal
                 }
+                //cleared or not, restart
+                continue
+            }
+
+            if (tail.value.compareAndSet(tailVal, Marker.popping as E)) {
+                //don't go pass the enqueue
+                if (tail != enqueue) {
+                    dequeue = tail.next
+                }
+                tail.value.set(null)
+                size.decrementAndGet()
+                return tailVal
             }
         }
     }
 
-    public fun remove(value: E) : Boolean {
-        return false
+    suppress("UNCHECKED_CAST")
+    public fun remove(value: E): Boolean {
+        var node = dequeue
+        while (true) {
+            val nodeVal = node.value.get()
+            if (nodeVal == value) {
+                if (node.value.compareAndSet(nodeVal, Marker.deleted as E)) {
+                    size.decrementAndGet()
+                    return true
+                }
+            }
+            if (node == enqueue) {
+                return false
+            }
+            node = node.next
+        }
     }
 
     public fun size(): Int = size.get()
+    public fun capacity(): Int = capacity.get()
 
     private class MutableNode<E>() {
         volatile var next: MutableNode<E> = this
