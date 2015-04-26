@@ -36,7 +36,7 @@ public class LinkedRingBuffer<E : Any>() {
         dequeue = node
     }
 
-    public fun add(value: E) {
+    public fun offer(value: E) : Boolean {
         while (true) {
             val head = enqueue
             if (head.value.compareAndSet(null, value)) {
@@ -50,6 +50,7 @@ public class LinkedRingBuffer<E : Any>() {
                     enqueue = next
                 }
                 size.incrementAndGet()
+                return true
             }
         }
     }
@@ -62,7 +63,7 @@ public class LinkedRingBuffer<E : Any>() {
             if (tailVal == null && tail == enqueue) {
                 return null
             } else {
-                if (tail.value.compareAndSet(tailVal, intermediate as E)) {
+                if (tailVal != intermediate && tail.value.compareAndSet(tailVal, intermediate as E)) {
                     dequeue = tail.next
                     tail.value.set(null)
                     size.decrementAndGet()
@@ -70,6 +71,10 @@ public class LinkedRingBuffer<E : Any>() {
                 }
             }
         }
+    }
+
+    public fun remove(value: E) : Boolean {
+        return false
     }
 
     public fun size(): Int = size.get()

@@ -47,7 +47,7 @@ private class ConcreteDispatcherBuilder : DispatcherBuilder {
     private var localExceptionHandler: (Exception) -> Unit = { e -> e.printStackTrace(System.err) }
     private var localErrorHandler: (Throwable) -> Unit = { t -> t.printStackTrace(System.err) }
 
-    private val workQueue = ConcurrentLinkedQueue<() -> Unit>()
+    private val workQueue = LinkedRingBuffer<() -> Unit>()
     private val waitStrategyBuilder = ConcreteWaitStrategyBuilder(workQueue)
 
     override var name: String
@@ -101,7 +101,7 @@ trait WaitStrategyBuilder {
     fun addSleepPoll(numberOfPolls: Int = 10, sleepTimeInMs: Long = 10)
 }
 
-class ConcreteWaitStrategyBuilder(private val workQueue: ConcurrentLinkedQueue<() -> Unit>) : WaitStrategyBuilder {
+class ConcreteWaitStrategyBuilder(private val workQueue: LinkedRingBuffer<() -> Unit>) : WaitStrategyBuilder {
     private val strategies = ArrayList<WaitStrategy>()
 
     fun clear() = strategies.clear()
@@ -138,7 +138,7 @@ private class NonBlockingDispatcher(val name: String,
                                     val numberOfThreads: Int,
                                     private val exceptionHandler: (Exception) -> Unit,
                                     private val errorHandler: (Throwable) -> Unit,
-                                    private val workQueue: ConcurrentLinkedQueue<() -> Unit>,
+                                    private val workQueue: LinkedRingBuffer<() -> Unit>,
                                     private val waitStrategy: WaitStrategy) : Dispatcher {
 
     init {
@@ -243,7 +243,7 @@ private class NonBlockingDispatcher(val name: String,
     internal fun deRegisterRequest(context: ThreadContext, force: Boolean = false): Boolean {
 
         val succeeded = threadContexts.remove(context)
-        if (!force && succeeded && threadContexts.isEmpty() && workQueue.isNotEmpty() && running.get()) {
+        if (!force && succeeded && threadContexts.isEmpty() && workQueue.size() > 0 && running.get()) {
             //that, hopefully rare, state where all threadContexts thought they had nothing to do
             //but the queue isn't empty. Reinstate anyone that notes this.
             threadContexts.add(context)
@@ -385,23 +385,23 @@ private class ChainWaitStrategy(private val strategies: List<WaitStrategy>) : Wa
     }
 }
 
-private class BusyPollWaitStrategy(private val queue: ConcurrentLinkedQueue<*>,
+private class BusyPollWaitStrategy(private val queue: LinkedRingBuffer<*>,
                                    private val attempts: Int = 1000) : WaitStrategy {
     override fun waitAndReturnAlive(): Boolean {
         for (i in 0..attempts) {
-            if (queue.isNotEmpty()) return true
+            if (queue.size()> 0) return true
             Thread.yield()
         }
         return false
     }
 }
 
-private class SleepPollWaitStrategy(private val queue: ConcurrentLinkedQueue<*>,
+private class SleepPollWaitStrategy(private val queue: LinkedRingBuffer<*>,
                                     private val attempts: Int = 100,
                                     private val sleepTimeMs: Long = 10) : WaitStrategy {
     override fun waitAndReturnAlive(): Boolean {
         for (i in 0..attempts) {
-            if (queue.isNotEmpty()) return true
+            if (queue.size() > 0) return true
             Thread.sleep(sleepTimeMs)
         }
         return false
