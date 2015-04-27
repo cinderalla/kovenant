@@ -33,6 +33,7 @@ public class LinkedRingBuffer<E : Any>() {
     private object Marker {
         val popping = Any()
         val deleted = Any()
+        val injecting = Any()
     }
 
     init {
@@ -41,23 +42,25 @@ public class LinkedRingBuffer<E : Any>() {
         dequeue = node
     }
 
-    public fun offer(value: E): Boolean {
+    suppress("UNCHECKED_CAST")
+    public fun offer(newVal: E): Boolean {
         while (true) {
             val node = enqueue
 
             //Retry if the current node is not empty or we fail to set a new value
-            if (node.value.get() != null || !node.value.compareAndSet(null, value)) continue
+            if (node.value.get() != null || !node.value.compareAndSet(null, Marker.injecting as E)) continue
 
 
-            if (node.identityEquals(dequeue) || node.next.identityEquals(dequeue)) {
+            if (node.next identityEquals dequeue) {
                 val newNode = MutableNode<E?>()
                 newNode.next = node.next
                 node.next = newNode
                 enqueue = newNode
                 capacity.incrementAndGet()
             } else {
-                enqueue = node
+                enqueue = node.next
             }
+            node.value.set(newVal)
             size.incrementAndGet()
             return true
         }
@@ -69,35 +72,44 @@ public class LinkedRingBuffer<E : Any>() {
             val tail = dequeue
             val tailVal = tail.value.get()
 
-            if (tailVal == null) {
-                //can only happen when empty
-                return null
+            if (tailVal == null ) {
+                if (tail identityEquals enqueue) {
+                    return null
+                }
+                continue
             }
 
-            if (tailVal == Marker.popping) {
+            if (tailVal identityEquals Marker.popping) {
                 //value being popped by another thread, restart
                 continue
             }
-
-            if (tailVal == Marker.deleted) {
-                //we came across a deleted marker. Let's clear it if we can.
-                if (tail.value.compareAndSet(tailVal, Marker.popping as E)) {
-                    //don't go pass the enqueue
-                    if (tail != enqueue) {
-                        dequeue = tail.next
-                    }
-                    tail.value.set(null)
-                }
-                //cleared or not, restart
+            if (tailVal identityEquals Marker.injecting) {
+                //value being injected, wait for chain completion
                 continue
             }
 
-            if (tail.value.compareAndSet(tailVal, Marker.popping as E)) {
+            val deleted = tailVal identityEquals Marker.deleted
+
+            if (deleted || tail.value.compareAndSet(if(deleted) Marker.deleted as E else tailVal, Marker.popping as E)) {
                 //don't go pass the enqueue
-                if (tail != enqueue) {
+                var moved = false
+                if (!tail.identityEquals(enqueue)) {
                     dequeue = tail.next
+                    moved = true
                 }
                 tail.value.set(null)
+
+                //we couldn't move before because it was passed enqueue point.
+                //but that may have been changed
+                if (!moved && !tail.identityEquals(enqueue)) {
+                    dequeue = tail.next
+                } else if (!moved) {
+                    println("issue")
+                }
+
+                if (deleted) {
+                    continue
+                }
                 size.decrementAndGet()
                 return tailVal
             }
@@ -115,7 +127,7 @@ public class LinkedRingBuffer<E : Any>() {
                     return true
                 }
             }
-            if (node == enqueue) {
+            if (node identityEquals enqueue) {
                 return false
             }
             node = node.next
