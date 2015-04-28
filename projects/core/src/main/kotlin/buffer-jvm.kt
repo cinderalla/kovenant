@@ -32,9 +32,14 @@ public class LinkedRingBuffer<E : Any>() : Queue<E> {
     private val capacity = AtomicInteger(1)
 
     private object Marker {
-        val popping = Any()
-        val deleted = Any()
-        val injecting = Any()
+        val popping = Any () //NamedMarker("popping")
+        val deleted = Any () //NamedMarker("deleted")
+        val injecting = Any() //NamedMarker("injecting")
+
+        //only useful for debugging
+//        private class NamedMarker(private val value : String) {
+//            override fun toString(): String = value
+//        }
     }
 
     init {
@@ -78,7 +83,7 @@ public class LinkedRingBuffer<E : Any>() : Queue<E> {
                 //value being popped by another thread, restart
                 continue
             }
-            if (tailVal identityEquals tailVal identityEquals Marker.injecting) {
+            if (tailVal identityEquals Marker.injecting) {
                 //yes we know it going to be filled soon but operation hasn't completed yet.
                 //report empty.
                 return null
@@ -102,7 +107,7 @@ public class LinkedRingBuffer<E : Any>() : Queue<E> {
                 if (!tail.identityEquals(dequeue)) {
                     //we are not the dequeue need to prevent this
                     //after the cas we should be the only thread mutating
-                    println("not the dequeue")
+                    tail.setValue(tailVal)
                     continue
                 }
 
