@@ -20,10 +20,11 @@
  */
 package nl.mplatvoet.komponents.kovenant
 
+import java.util.Queue
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
-public class LinkedRingBuffer<E : Any>() {
+public class LinkedRingBuffer<E : Any>() : Queue<E> {
     private volatile var enqueue: MutableNode<E?>
     private volatile var dequeue: MutableNode<E?>
 
@@ -43,12 +44,13 @@ public class LinkedRingBuffer<E : Any>() {
     }
 
     suppress("UNCHECKED_CAST")
-    public fun offer(newVal: E): Boolean {
+    public override fun offer(e: E): Boolean {
         while (true) {
             val node = enqueue
 
             //Retry if the current node is not empty or we fail to set a new value
-            if (node.value.get() != null || !node.value.compareAndSet(null, Marker.injecting as E)) continue
+            //if not empty dequeue is clearing
+            if (node.value != null || !node.casValue(null, Marker.injecting as E)) continue
 
 
             if (node.next identityEquals dequeue) {
@@ -60,52 +62,53 @@ public class LinkedRingBuffer<E : Any>() {
             } else {
                 enqueue = node.next
             }
-            node.value.set(newVal)
+            node.setValue(e)
             size.incrementAndGet()
             return true
         }
     }
 
     suppress("UNCHECKED_CAST")
-    public fun poll(): E? {
+    public override fun poll(): E? {
         while (true) {
             val tail = dequeue
-            val tailVal = tail.value.get()
-
-            if (tailVal == null ) {
-                if (tail identityEquals enqueue) {
-                    return null
-                }
-                continue
-            }
+            val tailVal = tail.value
 
             if (tailVal identityEquals Marker.popping) {
                 //value being popped by another thread, restart
                 continue
             }
-            if (tailVal identityEquals Marker.injecting) {
-                //value being injected, wait for chain completion
+            if (tailVal identityEquals tailVal identityEquals Marker.injecting) {
+                //yes we know it going to be filled soon but operation hasn't completed yet.
+                //report empty.
+                return null
+            }
+
+            if (tailVal == null ) {
+                //null value, this can either by that to entire queue is empty
+                //or that after reading the dequeue the value has been popped
+                //so only report empty when this is still the dequeue node
+                //and also the enqueue node
+                if (tail identityEquals enqueue && tail identityEquals dequeue) {
+                    return null
+                }
+                //otherwise restart
                 continue
             }
 
+
             val deleted = tailVal identityEquals Marker.deleted
-
-            if (deleted || tail.value.compareAndSet(if(deleted) Marker.deleted as E else tailVal, Marker.popping as E)) {
-                //don't go pass the enqueue
-                var moved = false
-                if (!tail.identityEquals(enqueue)) {
-                    dequeue = tail.next
-                    moved = true
+            if (tail.casValue(tailVal, Marker.popping as E)) {
+                if (!tail.identityEquals(dequeue)) {
+                    //we are not the dequeue need to prevent this
+                    //after the cas we should be the only thread mutating
+                    println("not the dequeue")
+                    continue
                 }
-                tail.value.set(null)
 
-                //we couldn't move before because it was passed enqueue point.
-                //but that may have been changed
-                if (!moved && !tail.identityEquals(enqueue)) {
-                    dequeue = tail.next
-                } else if (!moved) {
-                    println("issue")
-                }
+                dequeue = tail.next
+                tail.setValue(null)
+
 
                 if (deleted) {
                     continue
@@ -117,12 +120,14 @@ public class LinkedRingBuffer<E : Any>() {
     }
 
     suppress("UNCHECKED_CAST")
-    public fun remove(value: E): Boolean {
+    public override fun remove(o: Any?): Boolean {
+        if (o == null) return false
+
         var node = dequeue
         while (true) {
-            val nodeVal = node.value.get()
-            if (nodeVal == value) {
-                if (node.value.compareAndSet(nodeVal, Marker.deleted as E)) {
+            val nodeVal = node.value
+            if (nodeVal == o) {
+                if (node.casValue(nodeVal, Marker.deleted as E)) {
                     size.decrementAndGet()
                     return true
                 }
@@ -134,12 +139,68 @@ public class LinkedRingBuffer<E : Any>() {
         }
     }
 
-    public fun size(): Int = size.get()
+    public override fun size(): Int = size.get()
     public fun capacity(): Int = capacity.get()
+
+
+    override fun add(e: E?): Boolean = if (e == null) false else offer(e)
+
+    //TODO verify
+    override fun equals(other: Any?): Boolean = other != null && this identityEquals (other)
+
+    override fun hashCode(): Int = super.hashCode()
+
+
+    override fun isEmpty(): Boolean = size.get() == 0
+
+    override fun contains(o: Any?): Boolean {
+        throw UnsupportedOperationException()
+    }
+
+    override fun containsAll(c: Collection<Any?>): Boolean {
+        throw UnsupportedOperationException()
+    }
+
+    override fun iterator(): MutableIterator<E> {
+        throw UnsupportedOperationException()
+    }
+
+    override fun addAll(c: Collection<E>): Boolean {
+        throw UnsupportedOperationException()
+    }
+
+    override fun removeAll(c: Collection<Any?>): Boolean {
+        throw UnsupportedOperationException()
+    }
+
+    override fun element(): E? {
+        throw UnsupportedOperationException()
+    }
+
+    override fun retainAll(c: Collection<Any?>): Boolean {
+        throw UnsupportedOperationException()
+    }
+
+    override fun clear() {
+        throw UnsupportedOperationException()
+    }
+
+    override fun remove(): E? {
+        throw UnsupportedOperationException()
+    }
+
+    override fun peek(): E? {
+        throw UnsupportedOperationException()
+    }
 
     private class MutableNode<E>() {
         volatile var next: MutableNode<E> = this
-        val value = AtomicReference<E>()
+        private val valueRef = AtomicReference<E>()
+
+        val value: E get() = valueRef.get()
+
+        fun casValue(expect: E, update: E) = valueRef.compareAndSet(expect, update)
+        fun setValue(update: E) = valueRef.set(update)
     }
 }
 
