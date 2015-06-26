@@ -1,0 +1,6 @@
+project.description = "Vert.x extensions"
+
+dependencies {
+    compile project(':kovenant-core')
+    provided 'io.vertx:vertx-core:3.0.0'
+}

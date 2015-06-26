@@ -16,27 +16,16 @@
  * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
  * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
  * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+package io.vertx.core.impl
 
-rootProject.name = 'root'
-
-include 'core'
-include 'combine'
-include 'jvm'
-include 'kovenant'
-include 'android'
-include 'vertx'
-
-rootProject.children.each { project ->
-    String projectFileName = project.name.replaceAll("\\p{Upper}") { "-${it.toLowerCase()}" }
-    String projectDirName = "projects/$projectFileName"
-    project.projectDir = new File(settingsDir, projectDirName)
-    project.buildFileName = "${projectFileName}.gradle"
+public fun currentVertxContext() : io.vertx.core.impl.ContextImpl? {
+    val thread = Thread.currentThread()
+    if (thread is VertxThread) {
+        return thread.getContext()
+    }
+    return null
 }
 
-project(":core").name = "kovenant-core"
-project(":combine").name = "kovenant-combine"
-project(":jvm").name = "kovenant-jvm"
-project(":android").name = "kovenant-android"
-project(":vertx").name = "kovenant-vertx"
