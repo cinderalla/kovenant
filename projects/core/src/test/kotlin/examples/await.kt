@@ -23,24 +23,19 @@ package examples.await
 
 import nl.komponents.kovenant.Promise
 import nl.komponents.kovenant.async
-import java.util.concurrent.CountDownLatch
-
-
-public fun await(vararg promises: Promise<*, *>) {
-    val latch = CountDownLatch(promises.size())
-    promises forEach {
-        p ->
-        p always { latch.countDown() }
-    }
-    latch.await()
-}
-
+import support.fib
 
 
 fun main (args: Array<String>) {
-    val promises = Array(50) { async { Thread.sleep(100L) }}
+    val p = async {
+        val fib12 = await(fibonacci(12))
+        await(timesTwo(fib12))
+    }
 
-    print("waiting...")
-    await(*promises)
-    println(" done.")
+    p success {
+        println(it)
+    }
 }
+
+fun fibonacci(n : Int) : Promise<Int, Exception> = async { fib(n) }
+fun timesTwo(n:Int) : Promise<Int, Exception> = async { n shl 1 }

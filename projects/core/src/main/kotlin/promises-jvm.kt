@@ -27,7 +27,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
-internal fun concretePromise<V>(context: Context, callable: () -> V): Promise<V, Exception>
+internal fun concretePromise<V>(context: Context, callable: AwaitProvider.() -> V): Promise<V, Exception>
         = AsyncPromise(context, callable)
 
 internal fun concretePromise<V, R>(context: Context, promise: Promise<V, Exception>, callable: (V) -> R): Promise<R, Exception>
@@ -135,9 +135,10 @@ private class ThenPromise<V, R>(context: Context,
 
 }
 
-private class AsyncPromise<V>(context: Context, callable: () -> V) :
+private class AsyncPromise<V>(context: Context, callable: AwaitProvider.() -> V) :
         SelfResolvingPromise<V, Exception>(context),
-        CancelablePromise<V, Exception> {
+        CancelablePromise<V, Exception>,
+        AwaitProvider {
     private @Volatile var task: (() -> Unit)?
 
     init {
@@ -170,6 +171,21 @@ private class AsyncPromise<V>(context: Context, callable: () -> V) :
         }
 
         return false
+    }
+
+    override fun <V, E> await(promise: Promise<V, E>): V {
+        val dispatcher = promise.context.workerContext.dispatcher
+        if (dispatcher !is HelpableDispatcher)
+            throw UnsupportedException("dispatcher [$dispatcher] is not of type [HelpableDispatcher]")
+
+        while (!promise.isDone()){
+            if(!dispatcher.help()) {
+                //This should actually never happen
+                Thread.yield()
+            }
+        }
+
+        return promise.get()
     }
 }
 

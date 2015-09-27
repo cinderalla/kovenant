@@ -85,6 +85,10 @@ public interface ProcessAwareDispatcher : Dispatcher {
     fun ownsCurrentProcess(): Boolean
 }
 
+public interface HelpableDispatcher : Dispatcher {
+    fun help(): Boolean
+}
+
 public fun buildDispatcher(body: DispatcherBuilder.() -> Unit): Dispatcher = concreteBuildDispatcher(body)
 
 public interface DispatcherBuilder {

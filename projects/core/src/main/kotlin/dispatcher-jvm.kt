@@ -21,7 +21,7 @@
 
 package nl.komponents.kovenant
 
-import java.util.ArrayList
+import java.util.*
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -129,7 +129,7 @@ private class NonBlockingDispatcher(val name: String,
                                     private val errorHandler: (Throwable) -> Unit,
                                     private val workQueue: WorkQueue<() -> Unit>,
                                     private val pollStrategy: PollStrategy<() -> Unit>,
-                                    private val threadFactory: (target: Runnable, dispatcherName: String, id: Int) -> Thread) : ProcessAwareDispatcher {
+                                    private val threadFactory: (target: Runnable, dispatcherName: String, id: Int) -> Thread) : ProcessAwareDispatcher, HelpableDispatcher {
 
     init {
         if (numberOfThreads < 1) {
@@ -143,6 +143,12 @@ private class NonBlockingDispatcher(val name: String,
 
     private val threadContexts = ConcurrentLinkedQueue<ThreadContext>()
 
+    override fun help(): Boolean {
+        val threadContext = currentThreadContext() ?: throw StateException("current thread does not belong to this context")
+        return threadContext.help()
+    }
+
+    private fun currentThreadContext() = threadContexts.find { it.isCurrentThread() }
 
     override fun offer(task: () -> Unit): Boolean {
         if (running.get()) {
@@ -231,7 +237,7 @@ private class NonBlockingDispatcher(val name: String,
     // implemented for completeness. not the best implementation out there, iteration is quite wasteful
     // on resources. Not used in primary processes though. Consider using a custom list implementation,
     // there is more then one already implemented
-    override fun ownsCurrentProcess(): Boolean = threadContexts.any { it.isCurrentThread() }
+    override fun ownsCurrentProcess(): Boolean = currentThreadContext() != null
 
     private fun newThreadContext(): ThreadContext {
         return ThreadContext(threadId.incrementAndGet())
@@ -367,6 +373,17 @@ private class NonBlockingDispatcher(val name: String,
             }
         }
 
+        fun help() : Boolean {
+
+            //TODO, implement this properly
+            val function = pollStrategy.get()
+            if (function != null) {
+                function()
+                return true
+            }
+
+            return false
+        }
 
         /*
         Become 'kamikaze' or just really suicidal. Try to bypass the pollStrategy for quick and clean death.

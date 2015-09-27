@@ -260,6 +260,10 @@ public interface Promise<out V, out E> {
 }
 
 
+public interface AwaitProvider {
+    fun <V, E> await(promise: Promise<V, E>): V
+}
+
 /**
  * Creates a new [Deferred] instance.
  *
@@ -278,7 +282,7 @@ public fun deferred<V, E>(context: Context = Kovenant.context): Deferred<V, E> =
  * @return returns a [Promise] of inferred success type [V] and failure type [Exception]
  */
 public fun async<V>(context: Context = Kovenant.context,
-                    body: () -> V): Promise<V, Exception> = concretePromise(context, body)
+                    body: AwaitProvider.() -> V): Promise<V, Exception> = concretePromise(context, body)
 
 /**
  * Asynchronously bind the success value of a [Promise] and returns a new [Promise] with the transformed value.
